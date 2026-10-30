@@ -30,6 +30,10 @@ namespace share
 {
 const ObString ObAiModelEndpointInfo::DEFAULT_SCOPE = "ALL";
 
+// max_concurrency bounds, see DBA_OB_AI_MODEL_ENDPOINTS.MAX_CONCURRENCY
+static const int64_t MIN_MAX_CONCURRENCY = 1;
+static const int64_t MAX_MAX_CONCURRENCY = 1024;
+
 const char *VALID_PROVIDERS[] = {
   "ALIYUN-OPENAI",
   "ALIYUN-DASHSCOPE",
@@ -63,6 +67,26 @@ const char *VALID_PROVIDERS[] = {
     LOG_WARN("unknown json key param", K(ret), K(elem.first)); \
   }
 
+#define EXTRACT_JSON_ELEM_INT_WITH_RANGE(json_key, member, set_flag, min_value, max_value) \
+      if (elem.first.case_compare(json_key) == 0) { \
+        if (elem.second->json_type() != ObJsonNodeType::J_INT \
+            && elem.second->json_type() != ObJsonNodeType::J_UINT) { \
+          ret = OB_AI_FUNC_PARAM_VALUE_INVALID; \
+          LOG_USER_ERROR(OB_AI_FUNC_PARAM_VALUE_INVALID, elem.first.length(), elem.first.ptr()); \
+          LOG_WARN("invalid json type", K(ret), K(elem.first), K(elem.second->json_type())); \
+        } else { \
+          int64_t int_value = elem.second->get_int(); \
+          if (int_value < (min_value) || int_value > (max_value)) { \
+            ret = OB_AI_FUNC_PARAM_VALUE_INVALID; \
+            LOG_USER_ERROR(OB_AI_FUNC_PARAM_VALUE_INVALID, elem.first.length(), elem.first.ptr()); \
+            LOG_WARN("invalid param value", K(ret), K(elem.first), K(int_value)); \
+          } else { \
+            member = int_value; \
+            set_flag = true; \
+          } \
+        } \
+      } else
+
 int ObAiModelEndpointInfo::parse_from_json_base(common::ObArenaAllocator &allocator, const ObString &name, const ObIJsonBase &params_jbase)
 {
   int ret = OB_SUCCESS;
@@ -91,6 +115,9 @@ int ObAiModelEndpointInfo::deep_copy(
   } else if (OB_FAIL(ob_write_string(allocator, other.parameters_, parameters_))) {
   } else if (OB_FAIL(ob_write_string(allocator, other.request_transform_fn_, request_transform_fn_))) {
   } else if (OB_FAIL(ob_write_string(allocator, other.response_transform_fn_, response_transform_fn_))) {
+  } else {
+    max_concurrency_ = other.max_concurrency_;
+    has_max_concurrency_ = other.has_max_concurrency_;
   }
   return ret;
 }
@@ -167,6 +194,7 @@ int ObAiModelEndpointInfo::merge_delta_endpoint(common::ObArenaAllocator &alloca
       EXTRACT_JSON_ELEM_STR("parameters", parameters_)
       EXTRACT_JSON_ELEM_STR("request_transform_fn", request_transform_fn_)
       EXTRACT_JSON_ELEM_STR("response_transform_fn", response_transform_fn_)
+      EXTRACT_JSON_ELEM_INT_WITH_RANGE("max_concurrency", max_concurrency_, has_max_concurrency_, MIN_MAX_CONCURRENCY, MAX_MAX_CONCURRENCY)
       EXTRACT_JSON_ELEM_END()
     }
     iter.next();
